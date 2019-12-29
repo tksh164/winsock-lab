@@ -1,3 +1,3 @@
-﻿# About this project
+﻿# UdpSendRecv
 
-This project is sample code of the sendto function and the recvfrom function of Winsock.
+This is sample code of the sendto() and recvfrom() functions of Winsock.
