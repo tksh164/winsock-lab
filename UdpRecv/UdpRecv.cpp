@@ -5,6 +5,7 @@
 #pragma comment(lib, "ws2_32.lib")
 
 #include <winsock2.h>
+#include <ws2tcpip.h>
 #include <windows.h>
 #include <wchar.h>
 #include <shlwapi.h>
@@ -12,20 +13,23 @@
 INT
 wmain(INT argc, WCHAR *argv[])
 {
-    if (argc < 2)
+    if (argc < 3)
     {
-        wprintf(L"%s <Bind Port>\n", argv[0]);
+        wprintf(L"%s <Local Address> <Local Port>\n", argv[0]);
         return 0;
     }
 
-    USHORT localPort = StrToInt(argv[1]);
+    PCWSTR localAddr = argv[1];
+    const USHORT localPort = StrToInt(argv[2]);
+
+    wprintf(L"Local address: %s\n", localAddr);
+    wprintf(L"Local port   : %d\n", localPort);
 
     //
 
-    INT err;
     WORD versionRequested = MAKEWORD(2, 2);
     WSADATA wsaData;
-    err = WSAStartup(versionRequested, &wsaData);
+    INT err = WSAStartup(versionRequested, &wsaData);
     if (err != 0)
     {
         wprintf(L"Failed: WSAStartup(): %d\n", err);
@@ -34,8 +38,7 @@ wmain(INT argc, WCHAR *argv[])
 
     //
 
-    SOCKET sock;
-    sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    SOCKET sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (sock == INVALID_SOCKET)
     {
         wprintf(L"Failed: socket(): %d\n", err);
@@ -45,30 +48,54 @@ wmain(INT argc, WCHAR *argv[])
     //
 
     SOCKADDR_IN localAddrIn;
+    SecureZeroMemory(&localAddrIn, sizeof(localAddrIn));
     localAddrIn.sin_family = AF_INET;
-    localAddrIn.sin_port = htons(localPort);    
-    localAddrIn.sin_addr.s_addr = htonl(INADDR_ANY);
-    err = bind(sock, (SOCKADDR *)&localAddrIn, sizeof(localAddrIn));
-    if (err != 0)
+    err = InetPton(localAddrIn.sin_family, localAddr, &localAddrIn.sin_addr);
+    if (err != 1)
     {
-        wprintf(L"Failed: bind(): %d\n", err);
+        if (err == 0)
+        {
+            wprintf(L"Failed: InetPton(): Not a valid IPv4 dotted-decimal string or a valid IPv6 address string\n");
+        }
+        else
+        {
+            wprintf(L"Failed: InetPton(): 0x%08x\n", WSAGetLastError());
+        }
+        goto Cleanup;
+    }
+    localAddrIn.sin_port = htons(localPort);    
+
+    if (bind(sock, (SOCKADDR *)&localAddrIn, sizeof(localAddrIn)) == SOCKET_ERROR)
+    {
+        wprintf(L"Failed: bind(): 0x%08x\n", WSAGetLastError());
         goto Cleanup;
     }
 
     //
 
-    CHAR buffer[32];
-    INT bufferLength = sizeof(buffer);
+    const int BUFFER_SIZE = 64;
+    CHAR receiveBuffer[BUFFER_SIZE];
+    SecureZeroMemory(receiveBuffer, sizeof(receiveBuffer));
+    INT receiveBufferLength = sizeof(receiveBuffer);
     SOCKADDR_IN remoteAddrIn;
+    SecureZeroMemory(&remoteAddrIn, sizeof(remoteAddrIn));
+    remoteAddrIn.sin_family = AF_INET;
     INT remoteAddrInLength = sizeof(remoteAddrIn);
-    err = recvfrom(sock, buffer, bufferLength, 0, (SOCKADDR *)&remoteAddrIn, &remoteAddrInLength);
-    if (err == SOCKET_ERROR)
+    if (recvfrom(sock, receiveBuffer, receiveBufferLength, 0, (SOCKADDR *)&remoteAddrIn, &remoteAddrInLength) == SOCKET_ERROR)
     {
-        wprintf(L"Failed: recvfrom(): %d\n", err);
+        wprintf(L"Failed: recvfrom(): 0x%08x\n", WSAGetLastError());
         goto Cleanup;
     }
 
-    wprintf(L"Received from %S@%d\n", inet_ntoa(remoteAddrIn.sin_addr), remoteAddrIn.sin_port);
+    const int IPV4_IP_ADDRESS_LENGTH = 16;
+    WCHAR remoteAddr[IPV4_IP_ADDRESS_LENGTH];
+    PCWSTR pRemoteAddr = InetNtop(remoteAddrIn.sin_family, &remoteAddrIn.sin_addr, (PWSTR)remoteAddr, sizeof(remoteAddr) / sizeof(WCHAR));
+    if (pRemoteAddr == NULL)
+    {
+        wprintf(L"Failed: InetNtop(): 0x%08x\n", WSAGetLastError());
+        goto Cleanup;
+    }
+    wprintf(L"Received from %s:%d\n", remoteAddr, remoteAddrIn.sin_port);
 
 Cleanup:
 

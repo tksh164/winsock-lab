@@ -5,6 +5,7 @@
 #pragma comment(lib, "ws2_32.lib")
 
 #include <winsock2.h>
+#include <ws2tcpip.h>
 #include <windows.h>
 #include <wchar.h>
 #include <shlwapi.h>
@@ -18,27 +19,17 @@ wmain(INT argc, WCHAR *argv[])
         return 0;
     }
 
-    CHAR remoteAddr[20];
-    size_t remoteAddrLengthInBytes = sizeof(remoteAddr);
-    size_t numCharsConverted;
-    errno_t errno = wcstombs_s(&numCharsConverted, remoteAddr, remoteAddrLengthInBytes, argv[1], _TRUNCATE);
-    if (errno != 0)
-    {
-        wprintf(L"Failed: wcstombs_s(): %d\n", errno);
-        return 0;
-    }
+    PCWSTR remoteAddr = argv[1];
+    const USHORT remotePort = StrToInt(argv[2]);
 
-    USHORT remotePort = StrToInt(argv[2]);
-
-    wprintf(L"Address: %S\n", remoteAddr);
-    wprintf(L"Port   : %d\n", remotePort);
+    wprintf(L"Remote address: %s\n", remoteAddr);
+    wprintf(L"Remote port   : %d\n", remotePort);
 
     //
 
-    INT err;
     WORD versionRequested = MAKEWORD(2, 2);
     WSADATA wsaData;
-    err = WSAStartup(versionRequested, &wsaData);
+    INT err = WSAStartup(versionRequested, &wsaData);
     if (err != 0)
     {
         wprintf(L"Failed: WSAStartup(): %d\n", err);
@@ -47,8 +38,7 @@ wmain(INT argc, WCHAR *argv[])
 
     //
 
-    SOCKET sock;
-    sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    SOCKET sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (sock == INVALID_SOCKET)
     {
         wprintf(L"Failed: socket(): %d\n", err);
@@ -58,20 +48,33 @@ wmain(INT argc, WCHAR *argv[])
     //
 
     SOCKADDR_IN remoteAddrIn;
+    SecureZeroMemory(&remoteAddrIn, sizeof(remoteAddrIn));
     remoteAddrIn.sin_family = AF_INET;
-    remoteAddrIn.sin_port = htons(remotePort);    
-    remoteAddrIn.sin_addr.s_addr = inet_addr(remoteAddr);
-
-    CHAR buffer[16];
-    INT bufferLengthInBytes = sizeof(buffer);
-    err = sendto(sock, buffer, bufferLengthInBytes, 0, (SOCKADDR *)&remoteAddrIn, sizeof(remoteAddrIn));
-    if (err == SOCKET_ERROR)
+    err = InetPton(remoteAddrIn.sin_family, remoteAddr, &remoteAddrIn.sin_addr);
+    if (err != 1)
     {
-        wprintf(L"Failed: sendto(): %d\n", err);
+        if (err == 0)
+        {
+            wprintf(L"Failed: InetPton(): Not a valid IPv4 dotted-decimal string or a valid IPv6 address string\n");
+        }
+        else
+        {
+            wprintf(L"Failed: InetPton(): 0x%08x\n", WSAGetLastError());
+        }
+        goto Cleanup;
+    }
+    remoteAddrIn.sin_port = htons(remotePort);
+
+    const int BUFFER_SIZE = 64;
+    CHAR buffer[BUFFER_SIZE];
+    INT bufferLengthInBytes = sizeof(buffer);
+    if (sendto(sock, buffer, bufferLengthInBytes, 0, (SOCKADDR *)&remoteAddrIn, sizeof(remoteAddrIn)) == SOCKET_ERROR)
+    {
+        wprintf(L"Failed: sendto(): 0x%08x\n", WSAGetLastError());
         goto Cleanup;
     }
 
-    wprintf(L"Sent %S@%d\n", remoteAddr, remotePort);
+    wprintf(L"Sent to %s:%d\n", remoteAddr, remotePort);
 
 Cleanup:
 
