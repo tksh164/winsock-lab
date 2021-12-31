@@ -4,7 +4,7 @@
 
 The tools as the sample code of Winsock.
 
-## ⚖ License
+## License
 
 Copyright (c) 2015-present Takeshi Katano. All rights reserved. This software is released under the [MIT License](https://github.com/tksh164/winsock-lab/blob/master/LICENSE).
 
